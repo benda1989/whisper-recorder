@@ -1,0 +1,1588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Device Audio Player</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .header { text-align: center; margin-bottom: 30px; color: #333; }
+        .device-selector { margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 5px; }
+        .date-selector { margin-bottom: 20px; padding: 15px; background: #e3f2fd; border-radius: 5px; }
+        .playlist { margin-top: 20px; }
+        .audio-item { 
+            margin: 10px 0; 
+            padding: 15px; 
+            background: #fff; 
+            border: 1px solid #e0e0e0; 
+            border-radius: 12px; 
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06); 
+            transition: all 0.2s ease;
+        }
+        .audio-item:hover { 
+            background: #fafafa; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+            transform: translateY(-1px);
+        }
+        .audio-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .audio-title {
+            font-weight: 600;
+            font-size: 14px;
+            color: #333;
+        }
+        .audio-info { 
+            font-size: 11px; 
+            color: #888; 
+            text-align: right;
+            line-height: 1.4;
+        }
+        .audio-controls { margin: 10px 0; }
+        .current-playing { 
+            background: #f0f8f0 !important; 
+            border-color: #66bb6a; 
+            box-shadow: 0 4px 16px rgba(102, 187, 106, 0.15);
+        }
+        
+        /* Custom audio player styles */
+        .custom-audio-player { 
+            background: #f8f9fa; 
+            border-radius: 8px; 
+            padding: 12px; 
+            margin: 8px 0; 
+        }
+        
+        .player-controls { 
+            display: flex; 
+            align-items: center; 
+            gap: 10px; 
+            margin-bottom: 8px;
+        }
+        
+        .play-btn {
+            background: linear-gradient(135deg, #6C7B7F, #5A6B6F);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 44px;
+            height: 44px;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 3px 12px rgba(108, 123, 127, 0.3);
+            transition: all 0.2s ease;
+            position: relative;
+        }
+        
+        .play-btn:hover { 
+            background: linear-gradient(135deg, #7D8E93, #6A7B7F);
+            transform: translateY(-1px);
+            box-shadow: 0 5px 16px rgba(108, 123, 127, 0.4);
+        }
+        .play-btn:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 8px rgba(108, 123, 127, 0.3);
+        }
+        .play-btn:disabled { 
+            background: #ccc; 
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .play-btn.playing {
+            background: linear-gradient(135deg, #42A5F5, #2196F3);
+            animation: playing-pulse 2s infinite;
+        }
+        
+        @keyframes playing-pulse {
+            0%, 100% { box-shadow: 0 3px 12px rgba(66, 165, 245, 0.3); }
+            50% { box-shadow: 0 3px 12px rgba(66, 165, 245, 0.6); }
+        }
+        
+        .progress-container {
+            flex: 1;
+            background: linear-gradient(to right, #e8e8e8, #f0f0f0);
+            border-radius: 12px;
+            height: 6px;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+            margin: 0 12px;
+            border: 1px solid #e0e0e0;
+        }
+        
+        .progress-bar {
+            background: linear-gradient(90deg, #42A5F5, #2196F3);
+            height: 100%;
+            border-radius: 12px;
+            width: 0%;
+            transition: width 0.1s ease;
+            box-shadow: 0 1px 3px rgba(33, 150, 243, 0.3);
+        }
+        
+        .progress-handle {
+            position: absolute;
+            top: -5px;
+            width: 16px;
+            height: 16px;
+            background: linear-gradient(135deg, #ffffff, #f5f5f5);
+            border: 2px solid #2196F3;
+            border-radius: 50%;
+            cursor: grab;
+            transform: translateX(-8px);
+            opacity: 0;
+            transition: all 0.2s ease;
+            box-shadow: 0 3px 8px rgba(33, 150, 243, 0.4);
+        }
+        
+        .progress-handle:hover {
+            transform: translateX(-8px) scale(1.2);
+            box-shadow: 0 4px 12px rgba(33, 150, 243, 0.5);
+            border-color: #1976D2;
+        }
+        
+        .progress-handle:active {
+            cursor: grabbing;
+            transform: translateX(-8px) scale(1.3);
+            background: linear-gradient(135deg, #f0f0f0, #e8e8e8);
+        }
+        
+        .progress-container:hover .progress-handle { opacity: 1; }
+        
+        .time-display {
+            font-size: 11px;
+            color: #777;
+            min-width: 85px;
+            text-align: center;
+            font-family: 'Courier New', monospace;
+            background: rgba(0,0,0,0.05);
+            padding: 4px 8px;
+            border-radius: 6px;
+            border: 1px solid rgba(0,0,0,0.1);
+        }
+        .loading { text-align: center; color: #666; padding: 20px; }
+        .error { color: #d32f2f; text-align: center; padding: 20px; }
+        select, button { 
+            padding: 10px 16px; 
+            margin: 5px; 
+            border: 1px solid #ddd; 
+            border-radius: 8px; 
+            font-size: 14px;
+            transition: all 0.2s ease;
+        }
+        button { 
+            background: linear-gradient(135deg, #42A5F5, #2196F3); 
+            color: white; 
+            cursor: pointer; 
+            border: none;
+            font-weight: 500;
+            box-shadow: 0 2px 8px rgba(33, 150, 243, 0.3);
+        }
+        button:hover { 
+            background: linear-gradient(135deg, #1E88E5, #1976D2);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(33, 150, 243, 0.4);
+        }
+        button:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 6px rgba(33, 150, 243, 0.3);
+        }
+        button:disabled { 
+            background: #ccc; 
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        select {
+            background: white;
+            color: #333;
+        }
+        select:focus {
+            outline: none;
+            border-color: #2196F3;
+            box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.2);
+        }
+        .stats { background: #fff3e0; padding: 10px; border-radius: 5px; margin-bottom: 20px; }
+        
+        /* Modal styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto;
+            padding: 20px;
+            border-radius: 10px;
+            width: 80%;
+            max-width: 800px;
+            max-height: 80%;
+            overflow-y: auto;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close:hover {
+            color: #000;
+        }
+        .transcript-content {
+            background: #f8f9fa;
+            padding: 15px;
+        }
+        
+        /* DateTime input box style optimization */
+        input[type="datetime-local"]:focus,
+        input[type="number"]:focus {
+            outline: none !important;
+            border-color: #4299e1 !important;
+            box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1) !important;
+            transform: translateY(-1px);
+        }
+        
+        input[type="datetime-local"]:hover,
+        input[type="number"]:hover {
+            border-color: #a0aec0;
+            transform: translateY(-1px);
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(72,187,120,0.4) !important;
+        }
+        
+        .transcript-content {
+            border-radius: 5px;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #e0e0e0;
+        }
+        
+        /* Recording schedule styles */
+        .schedule-item {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 10px;
+            transition: all 0.2s ease;
+        }
+        
+        /* Overall background colors for different states */
+        .schedule-item.status-pending {
+            background: linear-gradient(135deg, #fef5e7, #fed7aa);
+            border-color: #f59e0b;
+        }
+        .schedule-item.status-active {
+            background: linear-gradient(135deg, #dcfce7, #bbf7d0);
+            border-color: #10b981;
+        }
+        .schedule-item.status-completed {
+            background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
+            border-color: #64748b;
+        }
+        
+        .schedule-info {
+            flex: 1;
+        }
+        .schedule-time {
+            font-weight: 600;
+            color: #2d3748;
+        }
+        .schedule-duration {
+            color: #4a5568;
+            font-size: 14px;
+        }
+        
+        /* Color legend styles */
+        .schedule-legend {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 15px;
+            font-size: 12px;
+            color: #666;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 4px;
+            border: 1px solid rgba(0,0,0,0.1);
+        }
+        .legend-color.pending {
+            background: linear-gradient(135deg, #fef5e7, #fed7aa);
+        }
+        .legend-color.active {
+            background: linear-gradient(135deg, #dcfce7, #bbf7d0);
+        }
+        .legend-color.completed {
+            background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
+        }
+        
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Audio Player</h1>
+        </div>
+
+        <div class="device-selector">
+            <label for="deviceSelect">Select Device:</label>
+            <select id="deviceSelect" onchange="loadDeviceRecordings()">
+                <option value="">-- Select Device --</option>
+            </select>
+            <button onclick="loadDevices()">Refresh Devices</button>
+            <button id="scheduleBtn" onclick="showScheduleModal()" style="display: none; background: #4caf50;">📅 Schedule</button>
+            <button id="liveMonitorBtn" onclick="toggleLiveMonitor()" style="display: none;">🎧 Live Monitoring</button>
+        </div>
+
+        <div class="date-selector" id="dateSelector" style="display: none;">
+            <label for="dateSelect">Select Date:</label>
+            <select id="dateSelect" onchange="loadPlaylist()">
+                <option value="">-- Select Date --</option>
+            </select>
+            <button id="transcriptBtn" onclick="showDailyTranscript()" style="margin-left: 15px; background: #4caf50; display: none;">📄 View Daily Transcript</button>
+            <label style="margin-left: 20px; display: inline-flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer;">
+                <input type="checkbox" id="continuousPlayCheck" style="transform: scale(1.1);">
+                <span>Continuous Play</span>
+            </label>
+        </div>
+
+        <div class="stats" id="playlistStats" style="display: none;">
+            <span id="statsText"></span>
+        </div>
+
+        <div class="playlist" id="playlist"></div>
+    </div>
+
+    <!-- Transcript text modal -->
+    <div id="transcriptModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeTranscriptModal()">&times;</span>
+            <h2 id="transcriptTitle">Daily Transcript Text</h2>
+            <div id="transcriptInfo" style="margin: 10px 0; font-size: 14px; color: #666;"></div>
+            <div id="transcriptContent" class="transcript-content"></div>
+        </div>
+    </div>
+
+    <!-- Recording schedule modal -->
+    <div id="scheduleModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeScheduleModal()">&times;</span>
+            <h2 id="scheduleTitle">Recording Schedule Configuration</h2>
+            <div id="scheduleMessage"></div>
+            
+            <!-- Add schedule form -->
+            <div style="background: #f7fafc; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e2e8f0;">
+                <div style="display: flex; gap: 20px; align-items: end; flex-wrap: wrap;">
+                    <div style="display: flex; flex-direction: column; flex: 1; min-width: 200px;">
+                        <label style="font-weight: 600; margin-bottom: 8px; color: #2d3748; font-size: 16px;">📅 Start Time</label>
+                        <div style="position: relative;">
+                            <input type="datetime-local" id="scheduleStartDateTime" 
+                                   style="padding: 14px 18px; border: 2px solid #cbd5e0; border-radius: 10px; font-size: 16px; width: 90%; 
+                                          background: #fff; transition: all 0.2s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                                          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;" 
+                                   required>
+                        </div>
+                    </div>
+                    <div style="display: flex; flex-direction: column; min-width: 150px;">
+                        <label style="font-weight: 600; margin-bottom: 8px; color: #2d3748; font-size: 16px;">⏱️ Duration (minutes)</label>
+                        <input type="number" id="scheduleDuration" min="1" max="480" value="60" 
+                               style="padding: 14px 18px; border: 2px solid #cbd5e0; border-radius: 10px; font-size: 16px; 
+                                      background: #fff; transition: all 0.2s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                                      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;" required>
+                    </div>
+                    <button onclick="addSchedule()" 
+                            style="background: linear-gradient(135deg, #48bb78, #38a169); color: white; 
+                                   padding: 16px 28px; border: none; border-radius: 10px; cursor: pointer; 
+                                   font-size: 16px; font-weight: 600; min-height: 56px;
+                                   box-shadow: 0 4px 12px rgba(72,187,120,0.3);
+                                   transition: all 0.2s ease; white-space: nowrap;">
+                        ✨ Add Schedule
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Schedule list -->
+            <div>
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                    <h3>Current Recording Schedules</h3>
+                    <div class="schedule-legend">
+                        <div class="legend-item">
+                            <div class="legend-color pending"></div>
+                            <span>Pending</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color active"></div>
+                            <span>Recording</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color completed"></div>
+                            <span>Completed</span>
+                        </div>
+                    </div>
+                </div>
+                <div id="schedulesContainer">
+                    <div style="text-align: center; color: #a0aec0; padding: 20px; font-style: italic;">Loading schedules...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentAudio = null;
+        let currentPlayingIndex = -1;
+        let playlist = [];
+        let isLiveMonitoring = false;
+        let currentDeviceInfo = null;
+        let autoPlayNext = false;
+        
+        // Custom audio player status
+        let customAudioPlayers = {};  // Store each audio's player status
+        let progressUpdateIntervals = {};  // Progress update timers
+
+        // Web Audio API variables
+        let audioContext = null;
+        let audioQueue = [];
+        let isPlaying = false;
+        let nextStartTime = 0;
+        let audioBufferQueue = [];
+        
+        // WebSocket audio stream variables
+        let audioWebSocket = null;
+        let isWebSocketConnected = false;
+
+        // Load device list
+        async function loadDevices() {
+            try {
+                const response = await fetch('/devices');
+                const data = await response.json();
+                const deviceSelect = document.getElementById('deviceSelect');
+                deviceSelect.innerHTML = '<option value="">-- Select Device --</option>';
+                
+                data.devices.forEach(device => {
+                    const option = document.createElement('option');
+                    option.value = device.device_id;
+                    // 优先显示设备名称，如果没有则显示设备ID
+                    let displayName = device.device_name || device.device_id;
+                    if (device.is_online) {
+                        displayName += ' 🎧Live';
+                    } else {
+                        displayName += ' 📁History';
+                    }  
+                    option.textContent = displayName;
+                    deviceSelect.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Failed to load device list:', error);
+                showError('Failed to load device list');
+            }
+        }
+
+        // 加载设备录音列表
+        async function loadDeviceRecordings() {
+            const deviceId = document.getElementById('deviceSelect').value;
+            if (!deviceId) {
+                document.getElementById('dateSelector').style.display = 'none';
+                document.getElementById('playlist').innerHTML = '';
+                document.getElementById('playlistStats').style.display = 'none';
+                document.getElementById('liveMonitorBtn').style.display = 'none';
+                document.getElementById('scheduleBtn').style.display = 'none';
+                stopLiveMonitor();
+                return;
+            }
+            
+            // 清空统计信息
+            document.getElementById('playlistStats').style.display = 'none';
+
+            try {
+                // 检查设备实时状态
+                await checkLiveStatus(deviceId);
+                
+                const response = await fetch(`/devices/${deviceId}/recordings`);
+                const data = await response.json();
+                const dateSelect = document.getElementById('dateSelect');
+                dateSelect.innerHTML = '<option value="">-- Select Date --</option>';
+
+                // 按日期排序（最新的在前）
+                const sortedDates = Object.keys(data.recordings_by_date).sort().reverse();
+                
+                sortedDates.forEach(date => {
+                    const option = document.createElement('option');
+                    option.value = date;
+                    const fileCount = data.recordings_by_date[date].length;
+                    option.textContent = `${date} (${fileCount} files)`;
+                    dateSelect.appendChild(option);
+                });
+
+                document.getElementById('dateSelector').style.display = 'block';
+                document.getElementById('playlist').innerHTML = '';
+            } catch (error) {
+                console.error('Failed to load recording list:', error);
+                showError('Failed to load recording list');
+            }
+        }
+
+        // 检查设备实时状态
+        async function checkLiveStatus(deviceId) {
+            try {
+                const response = await fetch(`/devices/${deviceId}/live_status`);
+                currentDeviceInfo = await response.json();
+                
+                const liveBtn = document.getElementById('liveMonitorBtn');
+                const scheduleBtn = document.getElementById('scheduleBtn');
+                if (currentDeviceInfo.is_online) {
+                    liveBtn.style.display = 'inline-block';
+                } else {
+                    liveBtn.style.display = 'none';
+                    stopLiveMonitor();
+                }
+                // 录音计划按钮始终显示（在线和离线设备都可以配置计划）
+                scheduleBtn.style.display = 'inline-block';
+            } catch (error) {
+                console.error('Failed to check device status:', error);
+                document.getElementById('liveMonitorBtn').style.display = 'none';
+            }
+        }
+
+        // Toggle live monitoring
+        async function toggleLiveMonitor() {
+            const deviceId = document.getElementById('deviceSelect').value;
+            if (!deviceId) return;
+
+            if (isLiveMonitoring) {
+                stopLiveMonitor();
+            } else {
+                startLiveMonitor(deviceId);
+            }
+        }
+
+        // Initialize Web Audio API
+        async function initWebAudio() {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                if (audioContext.state === 'suspended') {
+                    await audioContext.resume();
+                }
+                return true;
+            } catch (error) {
+                console.error('Web Audio API initialization failed:', error);
+                return false;
+            }
+        }
+
+        // Decode audio data
+        async function decodeAudioData(arrayBuffer) {
+            try {
+                return await audioContext.decodeAudioData(arrayBuffer);
+            } catch (error) {
+                console.error('Audio decoding failed:', error);
+                return null;
+            }
+        }
+
+        // Play audio buffer
+        function playAudioBuffer(audioBuffer, startTime = null) {
+            if (!audioContext || !audioBuffer) return null;
+            
+            const source = audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioContext.destination);
+            
+            const actualStartTime = startTime || audioContext.currentTime;
+            source.start(actualStartTime);
+            
+            return { source, duration: audioBuffer.duration, startTime: actualStartTime };
+        }
+
+        // Start live monitoring
+        async function startLiveMonitor(deviceId) {
+            if (isLiveMonitoring) return;
+            
+            // Initialize Web Audio API
+            const webAudioReady = await initWebAudio();
+            
+            isLiveMonitoring = true;
+            document.getElementById('liveMonitorBtn').textContent = '⏹️ Stop Monitoring';
+            
+            // 创建实时音频播放器
+            const liveAudioDiv = document.createElement('div');
+            liveAudioDiv.id = 'liveAudioPlayer';
+            liveAudioDiv.innerHTML = `
+                <div style="background: #e8f5e8; padding: 15px; border-radius: 5px; margin: 10px 0; border: 2px solid #4caf50;">
+                    <div id="liveStatus" style="margin: 10px 0; font-size: 14px; color: #333;">Connecting to WebSocket audio stream...</div>
+                    <div id="bufferStatus" style="margin-top: 5px; font-size: 12px; color: #666;"></div>
+                </div>
+            `;
+            
+            document.getElementById('playlist').insertBefore(liveAudioDiv, document.getElementById('playlist').firstChild);
+            
+            // 重置播放状态
+            audioQueue = [];
+            audioBufferQueue = [];
+            isPlaying = false;
+            nextStartTime = 0;
+            autoPlayNext = true;
+            audioChunkCounter = 0;
+            
+            // Connect WebSocket audio stream
+            connectAudioWebSocket(deviceId);
+        }
+
+        // Connect WebSocket audio stream
+        function connectAudioWebSocket(deviceId) {
+            // 构建WebSocket URL
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}/ws/live_audio/${deviceId}`;
+            
+            console.log('🔌 连接音频WebSocket:', wsUrl);
+            
+            try {
+                audioWebSocket = new WebSocket(wsUrl);
+                
+                audioWebSocket.onopen = function(event) {
+                    console.log('✅ WebSocket audio stream connected successfully');
+                    isWebSocketConnected = true;
+                    updateLiveStatus('Connection successful, waiting for audio data...');
+                    
+                    // Send heartbeat
+                    const heartbeat = setInterval(() => {
+                        if (audioWebSocket && audioWebSocket.readyState === WebSocket.OPEN) {
+                            audioWebSocket.send(JSON.stringify({ type: 'ping' }));
+                        } else {
+                            clearInterval(heartbeat);
+                        }
+                    }, 30000);
+                };
+                
+                audioWebSocket.onmessage = function(event) {
+                    // Handle binary audio data directly, ignore JSON messages
+                    if (event.data instanceof ArrayBuffer) {
+                        handleAudioBinary(event.data);
+                    } else if (event.data instanceof Blob) {
+                        event.data.arrayBuffer().then(arrayBuffer => {
+                            handleAudioBinary(arrayBuffer);
+                        });
+                    } else if (typeof event.data === 'string') {
+                        try {
+                            const message = JSON.parse(event.data);
+                            if (message.type === 'connected') {
+                                updateLiveStatus(`WebSocket connected`);
+                            }
+                        } catch (e) {
+                            // Ignore invalid JSON
+                        }
+                    }
+                };
+                
+                audioWebSocket.onclose = function(event) {
+                    console.log('❌ WebSocket audio stream disconnected');
+                    isWebSocketConnected = false;
+                    updateLiveStatus('WebSocket disconnected');
+                };
+                
+                audioWebSocket.onerror = function(error) {
+                    console.error('❌ WebSocket audio stream error:', error);
+                    updateLiveStatus('WebSocket connection error');
+                };
+                
+            } catch (error) {
+                console.error('❌ Failed to create WebSocket connection:', error);
+                updateLiveStatus('WebSocket connection failed');
+            }
+        }
+
+        // Audio chunk counter
+        let audioChunkCounter = 0;
+        
+        // Handle binary audio data (simplified version)
+        async function handleAudioBinary(audioData) {
+            if (!audioData || audioData.byteLength === 0) {
+                return;
+            }
+            
+            audioChunkCounter++;
+            
+            try {                
+                // Decode audio data
+                const audioBuffer = await decodeAudioData(audioData);
+                if (audioBuffer) {
+                    audioBufferQueue.push(audioBuffer);
+                    
+                    // Calculate total samples and duration in current buffer (16kHz sample rate)
+                    const totalSamples = audioBufferQueue.reduce((total, buffer) => total + buffer.length, 0);
+                    const totalBufferedTime = totalSamples / 16000.0;
+                    
+                    // Limit buffer duration to no more than 8 seconds (avoid excessive delay)
+                    while (totalBufferedTime > 8.0 && audioBufferQueue.length > 1) {
+                        audioBufferQueue.shift();
+                    }
+                    
+                    updateBufferStatus();
+                    
+                    // 如果播放中且缓冲区有数据，继续排队播放
+                    if (isPlaying && audioBufferQueue.length > 0) {
+                        scheduleNextBuffer();
+                    }
+                    
+                    // 如果还没开始播放且缓冲区达到2秒，自动开始播放
+                    if (!isPlaying && totalBufferedTime >= 2.0) {
+                        console.log(`🎬 自动开始播放，缓冲区: ${totalSamples}样本 = ${totalBufferedTime.toFixed(1)}秒`);
+                        await startLivePlayback();
+                    }
+                } else {
+                    console.error('❌ 音频解码失败');
+                }
+                
+            } catch (error) {
+                console.error('处理音频数据失败:', error);
+            }
+        }
+
+
+        // 安排下一个音频缓冲区播放
+        function scheduleNextBuffer() {
+            if (audioBufferQueue.length === 0 || !isPlaying) return;
+            
+            const audioBuffer = audioBufferQueue.shift();
+            const currentTime = audioContext.currentTime;
+            
+            // 更精确的时间同步 - 确保连续播放
+            if (nextStartTime <= currentTime + 0.01) {
+                nextStartTime = currentTime + 0.02; // 略微提前确保无间隙
+            }
+            
+            // 播放音频
+            const playInfo = playAudioBuffer(audioBuffer, nextStartTime);
+            if (playInfo) {
+                audioQueue.push(playInfo);
+                // 精确计算下一个片段开始时间，确保无缝连接
+                nextStartTime = playInfo.startTime + playInfo.duration;                
+                // 清理已播放完的音频源
+                setTimeout(() => {
+                    audioQueue.shift();
+                }, (playInfo.startTime + playInfo.duration - currentTime + 0.1) * 1000);
+            }
+            
+            updateBufferStatus();
+        }
+
+        // 开始实时播放
+        async function startLivePlayback() {
+            if (!audioContext) {
+                alert('Web Audio API 未初始化，请刷新页面重试');
+                return;
+            }
+            
+            if (audioContext.state === 'suspended') {
+                await audioContext.resume();
+            }
+            
+            isPlaying = true;
+            nextStartTime = audioContext.currentTime + 0.1; // 稍微延迟启动            
+            // 一次性调度前几个音频片段，确保连续性
+            let scheduledCount = 0;
+            const maxSchedule = Math.min(4, audioBufferQueue.length);
+            
+            while (scheduledCount < maxSchedule && audioBufferQueue.length > 0) {
+                scheduleNextBuffer();
+                scheduledCount++;
+            }
+            
+            updateBufferStatus();
+            
+            // 更频繁地检查和补充播放队列
+            const playbackChecker = setInterval(() => {
+                if (!isPlaying) {
+                    clearInterval(playbackChecker);
+                    return;
+                }
+                
+                // 保持播放队列有2-3个音频片段
+                while (audioQueue.length < 3 && audioBufferQueue.length > 0) {
+                    scheduleNextBuffer();
+                }
+                
+                // 如果缓冲区过少，警告
+                if (audioBufferQueue.length <= 1 && audioQueue.length <= 1) {
+                    console.warn('⚠️ 缓冲区严重不足');
+                }
+            }, 100); // 更频繁的检查 - 100ms
+        }
+
+        // 停止实时播放
+        function stopLivePlayback() {
+            isPlaying = false;
+            
+            // 停止所有正在播放的音频源
+            audioQueue.forEach(item => {
+                if (item.source) {
+                    try {
+                        item.source.stop();
+                    } catch (e) {
+                        // 忽略已停止的源
+                    }
+                }
+            });
+            
+            audioQueue = [];
+            nextStartTime = 0;
+            updateBufferStatus();
+        }
+
+        // 更新缓冲区状态显示
+        function updateBufferStatus() {
+            const bufferStatus = document.getElementById('bufferStatus');
+            if (bufferStatus) {
+                const playingCount = audioQueue.length;
+                const bufferCount = audioBufferQueue.length;
+                // 基于样本数计算缓冲时长（16kHz）
+                const totalSamples = audioBufferQueue.reduce((total, buffer) => total + buffer.length, 0);
+                const bufferedTime = totalSamples / 16000.0;
+                const wsStatus = isWebSocketConnected ? '🔗 connected' : '🔌 Unconnected';
+                bufferStatus.textContent = `${wsStatus} | Playing: ${playingCount} | Buffered: ${bufferedTime.toFixed(1)}s | Processed: ${audioChunkCounter}`;
+            }
+        }
+        
+        // 更新实时状态显示 (重载函数)
+        function updateLiveStatus(statusText) {
+            const liveStatus = document.getElementById('liveStatus');
+            if (liveStatus && statusText) {
+                liveStatus.textContent = statusText;
+            }
+        }
+
+        // 停止实时监听
+        function stopLiveMonitor() {
+            if (!isLiveMonitoring) return;
+            
+            isLiveMonitoring = false;
+            document.getElementById('liveMonitorBtn').textContent = '🎧 Start Live Monitoring';
+            
+            // 停止音频播放
+            stopLivePlayback();
+            
+            // 关闭WebSocket连接
+            if (audioWebSocket) {
+                audioWebSocket.close();
+                audioWebSocket = null;
+                isWebSocketConnected = false;
+            }
+            
+            
+            const liveAudioPlayer = document.getElementById('liveAudioPlayer');
+            if (liveAudioPlayer) {
+                liveAudioPlayer.remove();
+            }
+            
+            // 清理音频缓冲区
+            audioBufferQueue = [];
+            audioQueue = [];
+            audioChunkCounter = 0;
+        }
+
+
+
+        // 加载播放列表
+        async function loadPlaylist() {
+            const deviceId = document.getElementById('deviceSelect').value;
+            const date = document.getElementById('dateSelect').value;
+            
+            if (!deviceId || !date) {
+                document.getElementById('playlist').innerHTML = '';
+                document.getElementById('transcriptBtn').style.display = 'none';
+                return;
+            }
+            
+            // 显示转录按钮
+            document.getElementById('transcriptBtn').style.display = 'inline-block';
+
+            document.getElementById('playlist').innerHTML = '<div class="loading">Loading playlist...</div>';
+
+            try {
+                const response = await fetch(`/devices/${deviceId}/playlist/${date}`);
+                const data = await response.json();
+                playlist = data.playlist;
+
+                // 显示统计信息
+                document.getElementById('statsText').textContent = 
+                    `Total: ${data.total_files} files, Duration: ${formatDuration(data.total_duration)}`;
+                document.getElementById('playlistStats').style.display = 'block';
+
+                // 渲染播放列表
+                const playlistDiv = document.getElementById('playlist');
+                playlistDiv.innerHTML = '';
+
+                playlist.forEach((audio, index) => {
+                    const audioItem = document.createElement('div');
+                    audioItem.className = 'audio-item';
+                    audioItem.id = `audio-${index}`;
+                    
+                    audioItem.innerHTML = `
+                        <div class="audio-header">
+                            <div class="audio-title">${audio.filename}</div>
+                            <div class="audio-info">
+                                ${formatDuration(audio.duration)} • ${formatBytes(audio.size)}<br>
+                                <span style="color: #aaa; font-size: 10px;">${new Date(audio.created_time * 1000).toLocaleString('zh-CN', {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'})}</span>
+                            </div>
+                        </div>
+                        <div class="custom-audio-player">
+                            <div class="player-controls">
+                                <button class="play-btn" id="playBtn-${index}" onclick="togglePlay(${index})">
+                                    ▶️
+                                </button>
+                                <div class="progress-container" onclick="seekAudio(event, ${index})">
+                                    <div class="progress-bar" id="progressBar-${index}"></div>
+                                    <div class="progress-handle" id="progressHandle-${index}" 
+                                         onmousedown="startDrag(event, ${index})"></div>
+                                </div>
+                                <div class="time-display" id="timeDisplay-${index}">
+                                    0:00 / ${formatDuration(audio.duration)}
+                                </div>
+                            </div>
+                            <audio id="audioElement-${index}" preload="none" onended="onAudioEnded(${index})">
+                                <source src="${audio.url}" type="audio/wav">
+                                Your browser does not support audio playback
+                            </audio>
+                        </div>
+                    `;
+                    
+                    playlistDiv.appendChild(audioItem);
+                    
+                    // 初始化播放器状态
+                    customAudioPlayers[index] = {
+                        isPlaying: false,
+                        duration: audio.duration,
+                        currentTime: 0
+                    };
+                });
+
+
+            } catch (error) {
+                console.error('Failed to load playlist:', error);
+                showError('Failed to load playlist');
+            }
+        }
+
+        // 格式化时长
+        function formatDuration(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        // 格式化文件大小
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // 自定义播放器控制函数
+        function togglePlay(index) {
+            const audioElement = document.getElementById(`audioElement-${index}`);
+            const playBtn = document.getElementById(`playBtn-${index}`);
+            const playerState = customAudioPlayers[index];
+            
+            if (!audioElement) return;
+            
+            if (playerState.isPlaying) {
+                // 暂停播放
+                audioElement.pause();
+                playBtn.textContent = '▶️';
+                playBtn.classList.remove('playing');
+                playerState.isPlaying = false;
+                clearInterval(progressUpdateIntervals[index]);
+                
+                // 移除当前播放标记
+                document.getElementById(`audio-${index}`).classList.remove('current-playing');
+                if (currentPlayingIndex === index) {
+                    currentPlayingIndex = -1;
+                    currentAudio = null;
+                }
+            } else {
+                // 停止其他正在播放的音频
+                stopAll();
+                
+                // 开始播放
+                audioElement.play();
+                playBtn.textContent = '⏸️';
+                playBtn.classList.add('playing');
+                playerState.isPlaying = true;
+                currentPlayingIndex = index;
+                currentAudio = audioElement;
+                
+                // 添加当前播放标记
+                document.getElementById(`audio-${index}`).classList.add('current-playing');
+                
+                // 启动进度更新
+                startProgressUpdate(index);
+            }
+            
+            // 悬浮按钮会自动跟随播放状态
+        }
+        
+        // 开始进度更新
+        function startProgressUpdate(index) {
+            const audioElement = document.getElementById(`audioElement-${index}`);
+            const playerState = customAudioPlayers[index];
+            
+            progressUpdateIntervals[index] = setInterval(() => {
+                if (audioElement && !audioElement.paused && !isDragging) {
+                    const currentTime = audioElement.currentTime;
+                    const duration = audioElement.duration || playerState.duration;
+                    const progress = currentTime / duration;
+                    
+                    // 更新进度条显示
+                    updateProgressDisplay(index, progress, currentTime, duration);
+                    
+                    // 更新状态
+                    playerState.currentTime = currentTime;
+                } else if (audioElement && audioElement.paused) {
+                    clearInterval(progressUpdateIntervals[index]);
+                }
+            }, 100);
+        }
+        
+        // 拖拽状态管理
+        let isDragging = false;
+        let dragIndex = -1;
+        
+        // 音频跳转
+        function seekAudio(event, index) {
+            if (isDragging) return; // 拖拽时不响应点击
+            
+            const progressContainer = event.currentTarget;
+            const audioElement = document.getElementById(`audioElement-${index}`);
+            const playerState = customAudioPlayers[index];
+            
+            if (!audioElement) return;
+            
+            const rect = progressContainer.getBoundingClientRect();
+            const clickX = event.clientX - rect.left;
+            const progress = Math.max(0, Math.min(1, clickX / rect.width));
+            const duration = audioElement.duration || playerState.duration;
+            const newTime = progress * duration;
+            
+            // 设置新的播放位置
+            audioElement.currentTime = newTime;
+            playerState.currentTime = newTime;
+            
+            // 立即更新进度条
+            updateProgressDisplay(index, progress, newTime, duration);
+        }
+        
+        // 更新进度条显示
+        function updateProgressDisplay(index, progress, currentTime, duration) {
+            const progressPercent = progress * 100;
+            document.getElementById(`progressBar-${index}`).style.width = progressPercent + '%';
+            document.getElementById(`progressHandle-${index}`).style.left = progressPercent + '%';
+            document.getElementById(`timeDisplay-${index}`).textContent = 
+                `${formatDuration(currentTime)} / ${formatDuration(duration)}`;
+        }
+        
+        // 开始拖拽
+        function startDrag(event, index) {
+            event.preventDefault();
+            event.stopPropagation();
+            
+            isDragging = true;
+            dragIndex = index;
+            
+            // 添加全局事件监听
+            document.addEventListener('mousemove', handleDrag);
+            document.addEventListener('mouseup', endDrag);
+            
+            // 改变光标样式
+            document.body.style.cursor = 'grabbing';
+            document.body.style.userSelect = 'none';
+        }
+        
+        // 处理拖拽
+        function handleDrag(event) {
+            if (!isDragging || dragIndex === -1) return;
+            
+            event.preventDefault();
+            
+            const progressContainer = document.querySelector(`#audio-${dragIndex} .progress-container`);
+            const audioElement = document.getElementById(`audioElement-${dragIndex}`);
+            const playerState = customAudioPlayers[dragIndex];
+            
+            if (!progressContainer || !audioElement) return;
+            
+            const rect = progressContainer.getBoundingClientRect();
+            const mouseX = event.clientX - rect.left;
+            const progress = Math.max(0, Math.min(1, mouseX / rect.width));
+            const duration = audioElement.duration || playerState.duration;
+            const newTime = progress * duration;
+            
+            // 实时更新进度条显示（不改变音频位置）
+            updateProgressDisplay(dragIndex, progress, newTime, duration);
+        }
+        
+        // 结束拖拽
+        function endDrag(event) {
+            if (!isDragging || dragIndex === -1) return;
+            
+            event.preventDefault();
+            
+            const progressContainer = document.querySelector(`#audio-${dragIndex} .progress-container`);
+            const audioElement = document.getElementById(`audioElement-${dragIndex}`);
+            const playerState = customAudioPlayers[dragIndex];
+            
+            if (progressContainer && audioElement) {
+                const rect = progressContainer.getBoundingClientRect();
+                const mouseX = event.clientX - rect.left;
+                const progress = Math.max(0, Math.min(1, mouseX / rect.width));
+                const duration = audioElement.duration || playerState.duration;
+                const newTime = progress * duration;
+                
+                // 设置最终的播放位置
+                audioElement.currentTime = newTime;
+                playerState.currentTime = newTime;
+            }
+            
+            // 清理拖拽状态
+            isDragging = false;
+            dragIndex = -1;
+            
+            // 移除全局事件监听
+            document.removeEventListener('mousemove', handleDrag);
+            document.removeEventListener('mouseup', endDrag);
+            
+            // 恢复光标样式
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        }
+        
+        // 音频播放结束回调
+        function onAudioEnded(index) {
+            const playBtn = document.getElementById(`playBtn-${index}`);
+            const playerState = customAudioPlayers[index];
+            
+            // 重置播放状态
+            playBtn.textContent = '▶️';
+            playBtn.classList.remove('playing');
+            playerState.isPlaying = false;
+            playerState.currentTime = 0;
+            
+            // 重置进度条
+            document.getElementById(`progressBar-${index}`).style.width = '0%';
+            document.getElementById(`progressHandle-${index}`).style.left = '0%';
+            document.getElementById(`timeDisplay-${index}`).textContent = 
+                `0:00 / ${formatDuration(playerState.duration)}`;
+            
+            // 清除进度更新
+            clearInterval(progressUpdateIntervals[index]);
+            
+            // 移除当前播放标记
+            document.getElementById(`audio-${index}`).classList.remove('current-playing');
+            
+            // 自动播放下一个
+            if (currentPlayingIndex === index) {
+                playNext();
+            }
+            
+            // 悬浮按钮会自动跟随播放状态
+        }
+
+        // 播放下一个
+        function playNext() {
+            // 检查是否勾选了连续播放
+            const continuousCheck = document.getElementById('continuousPlayCheck');
+            if (!continuousCheck || !continuousCheck.checked) {
+                // 没有勾选连续播放，直接停止
+                currentPlayingIndex = -1;
+                currentAudio = null;
+                return;
+            }
+            
+            // 勾选了连续播放，播放下一首
+            if (currentPlayingIndex >= 0 && currentPlayingIndex < playlist.length - 1) {
+                // 播放下一首
+                const nextIndex = currentPlayingIndex + 1;
+                currentPlayingIndex = -1;  // 先重置，避免togglePlay里的stopAll影响
+                currentAudio = null;
+                togglePlay(nextIndex);
+            } else {
+                // 全部播放完成
+                currentPlayingIndex = -1;
+                currentAudio = null;
+            }
+        }
+
+        // 播放指定音频（兼容旧版本）
+        function playAudio(index) {
+            stopAll();
+            togglePlay(index);
+        }
+
+        // 连续播放全部（保留兼容性）
+        function playAll() {
+            // 自动勾选连续播放并从第一首开始
+            const continuousCheck = document.getElementById('continuousPlayCheck');
+            if (continuousCheck) {
+                continuousCheck.checked = true;
+            }
+            if (playlist.length > 0) {
+                togglePlay(0);
+            }
+        }
+
+        // 停止所有播放
+        function stopAll() {
+            
+            // 停止所有自定义播放器
+            Object.keys(customAudioPlayers).forEach(index => {
+                const audioElement = document.getElementById(`audioElement-${index}`);
+                const playBtn = document.getElementById(`playBtn-${index}`);
+                const playerState = customAudioPlayers[index];
+                
+                if (audioElement && playerState.isPlaying) {
+                    audioElement.pause();
+                    audioElement.currentTime = 0;
+                    playBtn.textContent = '▶️';
+                    playBtn.classList.remove('playing');
+                    playerState.isPlaying = false;
+                    playerState.currentTime = 0;
+                    
+                    // 重置进度条
+                    document.getElementById(`progressBar-${index}`).style.width = '0%';
+                    document.getElementById(`progressHandle-${index}`).style.left = '0%';
+                    document.getElementById(`timeDisplay-${index}`).textContent = 
+                        `0:00 / ${formatDuration(playerState.duration)}`;
+                    
+                    // 清除进度更新
+                    clearInterval(progressUpdateIntervals[index]);
+                }
+            });
+            
+            // 清除播放标记
+            document.querySelectorAll('.audio-item').forEach(item => {
+                item.classList.remove('current-playing');
+            });
+            
+            currentPlayingIndex = -1;
+            currentAudio = null;
+        }
+
+        // 显示错误信息
+        function showError(message) {
+            document.getElementById('playlist').innerHTML = `<div class="error">${message}</div>`;
+        }
+
+        // 显示当日Transcript
+        async function showDailyTranscript() {
+            const deviceId = document.getElementById('deviceSelect').value;
+            const date = document.getElementById('dateSelect').value;
+            
+            if (!deviceId || !date) {
+                alert('Please select device and date first');
+                return;
+            }
+            
+            try {
+                document.getElementById('transcriptContent').textContent = 'Loading transcript...';
+                document.getElementById('transcriptModal').style.display = 'block';
+                
+                const response = await fetch(`/devices/${deviceId}/daily_transcript/${date}`);
+                const data = await response.json();
+                
+                // 获取设备显示名称并更新弹窗标题
+                const deviceSelect = document.getElementById('deviceSelect');
+                const selectedOption = deviceSelect.options[deviceSelect.selectedIndex];
+                const deviceDisplayName = selectedOption ? selectedOption.textContent.replace(' 🎧Live', '').replace(' 📁History', '') : deviceId;
+                
+                document.getElementById('transcriptTitle').textContent = `${deviceDisplayName} - ${date} Transcript`;
+                
+                if (data.transcript) {
+                    document.getElementById('transcriptInfo').textContent = 
+                        `共 ${data.files_count}  files，${data.total_lines}  lines of text`;
+                    document.getElementById('transcriptContent').textContent = data.transcript;
+                } else {
+                    document.getElementById('transcriptInfo').textContent = 'No transcript for this date';
+                    document.getElementById('transcriptContent').textContent = 'No transcript files found for current date';
+                }
+                
+            } catch (error) {
+                console.error('获取Transcript失败:', error);
+                document.getElementById('transcriptContent').textContent = '获取Transcript失败: ' + error.message;
+            }
+        }
+        
+        // 关闭Transcript弹窗
+        function closeTranscriptModal() {
+            document.getElementById('transcriptModal').style.display = 'none';
+        }
+
+        // 显示录音计划弹窗
+        async function showScheduleModal() {
+            const deviceId = document.getElementById('deviceSelect').value;
+            if (!deviceId) {
+                alert('Please select device first');
+                return;
+            }
+            
+            // 获取当前选择的设备名称
+            const deviceSelect = document.getElementById('deviceSelect');
+            const selectedOption = deviceSelect.options[deviceSelect.selectedIndex];
+            const deviceDisplayName = selectedOption ? selectedOption.textContent.replace(' 🎧Live', '').replace(' 📁History', '') : deviceId;
+            
+            document.getElementById('scheduleTitle').textContent = `${deviceDisplayName} -Schedule Configuration`;
+            document.getElementById('scheduleModal').style.display = 'block';
+            
+            // 设置默认的24小时制时间
+            setDefaultDateTime();
+            
+            await loadSchedules();
+        }
+
+        // 关闭录音计划弹窗
+        function closeScheduleModal() {
+            document.getElementById('scheduleModal').style.display = 'none';
+        }
+
+        // 加载录音计划
+        async function loadSchedules() {
+            const deviceId = document.getElementById('deviceSelect').value;
+            if (!deviceId) return;
+            
+            try {
+                const response = await fetch(`/schedules/${deviceId}`);
+                const data = await response.json();
+                displaySchedules(data.schedules || []);
+            } catch (error) {
+                showScheduleMessage('加载计划失败: ' + error.message, 'error');
+            }
+        }
+
+        // 显示录音计划列表
+        function displaySchedules(schedules) {
+            const container = document.getElementById('schedulesContainer');
+            
+            if (schedules.length === 0) {
+                container.innerHTML = '<div style="text-align: center; color: #a0aec0; padding: 20px; font-style: italic;">No schedules</div>';
+                return;
+            }
+            
+            container.innerHTML = '';
+            
+            schedules.forEach(schedule => {
+                const startTime = new Date(schedule.start_at * 1000);
+                const endTime = new Date((schedule.start_at + schedule.duration) * 1000);
+                const durationMinutes = Math.round(schedule.duration / 60);
+                
+                let status = 'pending';
+                
+                const now = Date.now() / 1000;
+                if (schedule.is_active) {
+                    status = 'active';
+                } else if (now > schedule.start_at + schedule.duration) {
+                    status = 'completed';
+                }
+                
+                const item = document.createElement('div');
+                item.className = `schedule-item status-${status}`;
+                
+                item.innerHTML = `
+                    <div class="schedule-info">
+                        <div class="schedule-time">
+                            ${formatDateTime(startTime)} - ${formatTime(endTime)}
+                        </div>
+                        <div class="schedule-duration">
+                            Duration: ${durationMinutes}  minutes
+                        </div>
+                    </div>
+                `;
+                
+                container.appendChild(item);
+            });
+        }
+
+        // 验证时间格式
+        function validateDateTime(datetimeString) {
+            if (!datetimeString) return false;
+            
+            const date = new Date(datetimeString);
+            const now = new Date();
+            
+            if (date <= now) {
+                showScheduleMessage('Start time must be later than current time', 'error');
+                return false;
+            }
+            // 显示确认信息
+            const timeStr = date.toLocaleString('zh-CN', { 
+                year: 'numeric', 
+                month: '2-digit', 
+                day: '2-digit',
+                hour: '2-digit', 
+                minute: '2-digit'
+            });
+            console.log(`计划时间: ${timeStr}`);
+            return true;
+        }
+
+        // 添加录音计划
+        async function addSchedule() {
+            const deviceId = document.getElementById('deviceSelect').value;
+            const startDateTime = document.getElementById('scheduleStartDateTime').value;
+            const duration = parseInt(document.getElementById('scheduleDuration').value);
+            
+            if (!deviceId || !startDateTime || !duration) {
+                showScheduleMessage('Please fill in complete schedule information', 'error');
+                return;
+            }
+            
+            // 验证时间格式
+            if (!validateDateTime(startDateTime)) {
+                return;
+            }
+            
+            const startTimestamp = Math.floor(new Date(startDateTime).getTime() / 1000);
+            const durationSeconds = duration * 60;
+            
+            try {
+                const response = await fetch(`/schedules/${deviceId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        start_at: startTimestamp,
+                        duration: durationSeconds
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showScheduleMessage('schedule added successfully', 'success');
+                    setDefaultDateTime(); // 重新设置默认时间
+                    document.getElementById('scheduleDuration').value = '60';
+                    await loadSchedules();
+                } else {
+                    showScheduleMessage('Add failed: ' + data.message, 'error');
+                }
+                
+            } catch (error) {
+                showScheduleMessage('Add failed: ' + error.message, 'error');
+            }
+        }
+
+        // 显示计划消息
+        function showScheduleMessage(text, type) {
+            const messageDiv = document.getElementById('scheduleMessage');
+            const className = type === 'success' ? 'success' : 'error';
+            messageDiv.innerHTML = `<div class="${className}" style="margin: 10px 0; padding: 10px 15px; border-radius: 6px; background-color: ${type === 'success' ? '#c6f6d5' : '#fed7d7'}; color: ${type === 'success' ? '#22543d' : '#c53030'};">${text}</div>`;
+            setTimeout(() => {
+                messageDiv.innerHTML = '';
+            }, 3000);
+        }
+
+        // 格式化日期时间（用于计划显示）
+        function formatDateTime(date) {
+            return date.toLocaleString('zh-CN', {
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+
+        // 格式化时间（用于计划显示）
+        function formatTime(date) {
+            return date.toLocaleString('zh-CN', {
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+        
+        // 点击弹窗外部关闭
+        window.onclick = function(event) {
+            const transcriptModal = document.getElementById('transcriptModal');
+            const scheduleModal = document.getElementById('scheduleModal');
+            if (event.target === transcriptModal) {
+                transcriptModal.style.display = 'none';
+            }
+            if (event.target === scheduleModal) {
+                scheduleModal.style.display = 'none';
+            }
+        }
+
+        // 设置默认时间为当前时间+1 minutes
+        function setDefaultDateTime() {
+            const now = new Date();
+            // 设置为当前时间+1 minutes
+            now.setMinutes(now.getMinutes() + 1);
+            now.setSeconds(0);
+            now.setMilliseconds(0);
+            
+            // 格式化为 datetime-local 格式
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            
+            const datetimeString = `${year}-${month}-${day}T${hours}:${minutes}`;
+            
+            const dateTimeInput = document.getElementById('scheduleStartDateTime');
+            if (dateTimeInput) {
+                dateTimeInput.value = datetimeString;
+            }
+        }
+
+        // 页面加载时初始化
+        window.onload = function() {
+            loadDevices();
+            setDefaultDateTime(); // 设置默认时间
+            
+            // 为日期时间输入框添加点击事件
+            const dateTimeInput = document.getElementById('scheduleStartDateTime');
+            if (dateTimeInput) {
+                // 当输入框为空且获得焦点时，自动设置当前时间
+                dateTimeInput.addEventListener('focus', function() {
+                    if (!this.value) {
+                        setDefaultDateTime();
+                    }
+                });
+                
+                // 当输入框被点击时，如果值为空或无效，重新设置时间
+                dateTimeInput.addEventListener('click', function() {
+                    if (!this.value || new Date(this.value) < new Date()) {
+                        setDefaultDateTime();
+                    }
+                });
+            }
+        };
+    </script>
+</body>
+</html>
