@@ -214,22 +214,23 @@ def clean_connection(old: DeviceSession, new_obj: object):
     """Safely clean up old connections"""
     if old.connection_type == "tcp" and old.connection_obj != new_obj:
         try:
-            old.connection_obj.close()
+            if hasattr(old.connection_obj, 'fileno') and old.connection_obj.fileno() != -1:
+                old.connection_obj.close()
             logger.info(f"Cleaned old TCP connection for device {old.device_id}")
+        except (OSError, AttributeError):
+            pass
         except Exception as e:
             logger.warning(f"Failed to clean connection for device {old.device_id}: {e}")
     elif old.connection_type == "websocket" and old.connection_obj != new_obj:
         try:
-            # WebSocket连接会在其自己的异常处理中关闭
-            logger.info(f"WebSocket连接 {old.device_id} 将自动清理")
+            logger.info(f"WebSocket connection {old.device_id} will auto cleanup")
         except Exception as e:
-            logger.warning(f"WebSocket {old.device_id} 清理警告: {e}")
+            logger.warning(f"WebSocket {old.device_id} cleanup warning: {e}")
 
 def register_client(device_id: str, connection_type: str, connection_obj: object ) -> Dict:
-    """注册客户端连接并返回录音状态"""
+    ""
     current_time = time.time()
     duration = 0
-    # 获取当前录音状态
     device_schedules = recording_schedules.get(device_id, []) 
     if not device_schedules:
         os.makedirs(os.path.join(RECORDINGS, device_id), exist_ok=True)
@@ -241,18 +242,18 @@ def register_client(device_id: str, connection_type: str, connection_obj: object
     if duration <= 0:
         return 0
     with sessions_lock:
-        # 如果设备已存在，检查连接类型并处理旧连接
+            # Check if device exists and handle connection type
         if device_id in device_sessions:
             existing_session = device_sessions[device_id]
             if existing_session.connection_type == connection_type:
-                # 相同连接类型，清理旧连接
+                # Same connection type, clean old connection
                 clean_connection(existing_session, connection_obj)
-                logger.warning(f"设备 {device_id} 重复 {connection_type} 连接，已清理旧连接")
+                logger.warning(f"Device {device_id} duplicate {connection_type} connection, cleaned old connection")
             else:
-                # 不同连接类型，记录警告但允许共存
-                logger.warning(f"设备 {device_id} 多连接类型: 已有 {existing_session.connection_type}, 新增 {connection_type}")
+                # Different connection type, log warning but allow coexistence
+                logger.warning(f"Device {device_id} multiple connection types: existing {existing_session.connection_type}, new {connection_type}")
         
-        # 创建或更新设备会话
+        # Create or update device session
         device_sessions[device_id] = DeviceSession(
             device_id=device_id,
             connection_type=connection_type,
@@ -263,21 +264,27 @@ def register_client(device_id: str, connection_type: str, connection_obj: object
     return duration
 
 def unregister_client(device_id: str) -> bool:
-    """注销客户端连接"""
+    """Unregister client connection"""
     with sessions_lock:
         if device_id in device_sessions:
             try:
-                clean_connection(device_sessions[device_id], None)
+                session = device_sessions[device_id]
+                if session.connection_type == "tcp" and hasattr(session.connection_obj, 'fileno'):
+                    try:
+                        if session.connection_obj.fileno() != -1:
+                            session.connection_obj.close()
+                    except (OSError, AttributeError):
+                        pass
                 del device_sessions[device_id]
                 logger.info(f"Device discount: {device_id}")
                 return True
             except Exception as e:
-                logger.error(f"注销设备 {device_id} 失败: {e}")
+                logger.error(f"Failed to unregister device {device_id}: {e}")
                 return False
         return False
 
 def clean_devices():
-    """定期清理非活跃设备的后台任务"""
+    """Background task to periodically clean inactive devices"""
     while not stop_flag:
         try:
             current_time = time.time()
@@ -287,15 +294,15 @@ def clean_devices():
                     if current_time - session.last_chunk_time > DEVICE_TIMEOUT:
                         inactive_devices.append(device_id)
             for device_id in inactive_devices:
-                logger.warning(f"🕒 设备超时，自动清理: {device_id}")
+                logger.warning(f"🕒 Device timeout, auto cleanup: {device_id}")
                 unregister_client(device_id)
         except Exception as e:
-            logger.error(f"❌ 设备清理任务异常: {str(e)}")
+            logger.error(f"❌ Device cleanup task error: {str(e)}")
         finally:
             time.sleep(DEVICE_TIMEOUT)
 
 def check_device_status(session: str,device_id: str) -> dict:
-    """统一的设备状态检查函数"""
+    """Unified device status check function"""
     if session:
         return {
                 "device_id": device_id,
@@ -330,9 +337,9 @@ async def transcribe_audio(file: UploadFile = File(...)):
 
 @app.get("/devices")
 async def get_active_devices(auth: bool = Depends(require_auth)):
-    """获取设备列表（包括在线和离线设备）"""
+    """Get device list (including online and offline devices)"""
     devices_info = []
-    # 获取活跃设备信息
+    # Get active device information
     for  device_id, session in device_sessions.items():
         devices_info.append(check_device_status(session, device_id))
     for device_id in os.listdir(RECORDINGS):
@@ -345,20 +352,20 @@ async def get_active_devices(auth: bool = Depends(require_auth)):
 
 @app.get("/devices/{device_id}/live_status")
 async def get_live_status(device_id: str, auth: bool = Depends(require_auth)):
-    """获取设备实时状态"""
+    """Get device real-time status"""
     return check_device_status(device_sessions.get(device_id), device_id)
 
 
 @app.get("/devices/{device_id}/recordings")
 async def get_device_recordings(device_id: str, auth: bool = Depends(require_auth)):
-    """获取指定设备的录音文件列表（按日期文件夹组织）"""
+    """Get recording file list for specified device (organized by date folders)"""
     device_dir = os.path.join(RECORDINGS, device_id)
     
     if not os.path.exists(device_dir):
-        raise HTTPException(status_code=404, detail=f"设备 {device_id} 不存在")
+        raise HTTPException(status_code=404, detail=f"Device {device_id} does not exist")
     
     recordings_by_date = {}
-    # 遍历设备目录下的日期文件夹
+    # Traverse date folders under device directory
     for date_folder in os.listdir(device_dir):
         date_path = os.path.join(device_dir, date_folder)
         if not os.path.isdir(date_path):
@@ -388,11 +395,11 @@ async def get_device_recordings(device_id: str, auth: bool = Depends(require_aut
 
 @app.get("/devices/{device_id}/playlist/{date}")
 async def get_device_playlist(device_id: str, date: str, auth: bool = Depends(require_auth)):
-    """获取指定设备指定日期的音频播放列表"""
+    """Get audio playlist for specified device and date"""
     date_dir = os.path.join(RECORDINGS, device_id, date)
     
     if not os.path.exists(date_dir):
-        raise HTTPException(status_code=404, detail=f"设备 {device_id} 的日期 {date} 不存在")
+        raise HTTPException(status_code=404, detail=f"Date {date} for device {device_id} does not exist")
     
     audio_files = []
     for file in os.listdir(date_dir):
@@ -400,7 +407,7 @@ async def get_device_playlist(device_id: str, date: str, auth: bool = Depends(re
             filepath = os.path.join(date_dir, file)
             stat = os.stat(filepath)
             
-            # 读取音频信息
+            # Read audio information
             try:
                 audio_data, samplerate = sf.read(filepath)
                 duration = len(audio_data) / samplerate
@@ -415,7 +422,7 @@ async def get_device_playlist(device_id: str, date: str, auth: bool = Depends(re
                 "created_time": stat.st_ctime,
             })
     
-    # 按创建时间排序
+    # Sort by creation time
     audio_files = sorted(audio_files, key=lambda x: x["created_time"])
     
     return {
@@ -428,11 +435,11 @@ async def get_device_playlist(device_id: str, date: str, auth: bool = Depends(re
 
 @app.get("/audio/{device_id}/{date}/{filename}")
 async def get_audio_file(device_id: str, date: str, filename: str, auth: bool = Depends(require_auth)):
-    """获取音频文件"""
+    """Get audio file"""
     filepath = os.path.join(RECORDINGS, device_id, date, filename)
     
     if not os.path.exists(filepath) or not filename.endswith('.wav'):
-        raise HTTPException(status_code=404, detail="音频文件不存在")
+        raise HTTPException(status_code=404, detail="Audio file does not exist")
     
     return FileResponse(
         filepath,
@@ -443,57 +450,57 @@ async def get_audio_file(device_id: str, date: str, filename: str, auth: bool = 
 
 @app.post("/login")
 async def login(request: LoginRequest, response: Response):
-    """用户登录验证"""
+    """User login verification"""
     if request.password == SYSTEM_PASSWORD:
-        # 创建会话
+        # Create session
         session_token = generate_session_token()
         sessions[session_token] = {
             "created_at": time.time(),
             "last_activity": time.time()
         }
         
-        # 设置会话cookie
+        # Set session cookie
         response.set_cookie(
             "session_token", 
             session_token, 
-            max_age=86400,  # 24小时
+            max_age=86400,  # 24 hours
             httponly=True,
-            secure=False  # 在生产环境中应该设置为True
+            secure=False  # Should be set to True in production environment
         )
         
-        return {"success": True, "message": "登录成功"}
+        return {"success": True, "message": "Login successful"}
     else:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="密码错误"
+            detail="Incorrect password"
         )
 
 @app.get("/check-auth")
 async def check_auth(request: Request):
-    """检查认证状态"""
+    """Check authentication status"""
     authenticated = verify_session(request)
     return {"authenticated": authenticated}
 
 @app.post("/logout")
 async def logout(request: Request, response: Response):
-    """用户退出登录"""
+    """User logout"""
     session_token = request.cookies.get("session_token")
     if session_token and session_token in sessions:
         del sessions[session_token]
     
     response.delete_cookie("session_token")
-    return {"success": True, "message": "已退出登录"}
+    return {"success": True, "message": "Logged out successfully"}
 
 @app.get("/login", response_class=HTMLResponse)
 async def get_login_page():
-    """获取登录页面"""
+    """Get login page"""
     with open("login.html", "r", encoding="utf-8") as f:
         html_content = f.read()
     return HTMLResponse(content=html_content)
 
 @app.get("/", response_class=HTMLResponse)
 async def get_playlist_page(request: Request):
-    """获取音频播放页面（需要认证）"""
+    """Get audio playlist page (authentication required)"""
     if not verify_session(request):
         return RedirectResponse(url="/login")
     
@@ -501,83 +508,83 @@ async def get_playlist_page(request: Request):
         html_content = f.read()
     return HTMLResponse(content=html_content)
 
-# 存储实时监听连接
+# Store real-time listening connections
 live_listeners: Dict[str, List[WebSocket]] = {}
 live_listeners_lock = threading.Lock()
 
 @app.websocket("/ws/audio")
 async def websocket_audio_endpoint(websocket: WebSocket):
-    """WebSocket音频传输端点（优化的非阻塞版本）"""
+    """WebSocket audio transmission endpoint (optimized non-blocking version)"""
     global stop_flag
     await websocket.accept()
     device_id = None
     
     try:       
         while not stop_flag:
-            # 接收消息 - 可能是文本(设备ID)或二进制(音频数据)
+            # Receive message - could be text (device ID) or binary (audio data)
             try:
-                # 添加超时避免永久阻塞
+                # Add timeout to avoid permanent blocking
                 message = await asyncio.wait_for(websocket.receive(), timeout=5.0)
-                # logger.info(f"🔍 WebSocket收到消息: {message}")
+                # logger.info(f"🔍 WebSocket received message: {message}")
                 
                 if "text" in message:
-                    # 处理文本消息 (设备ID注册)
+                    # Handle text message (device ID registration)
                     try:
                         data = json.loads(message["text"])
-                        # logger.info(f"🔍 解析JSON成功: {data}")
+                        # logger.info(f"🔍 JSON parsing successful: {data}")
                         if data.get("type") == "device_id":
                             device_id = data.get("id")
                             recording_duration = register_client(device_id, "websocket", websocket )
                             try:
                                 await websocket.send_text(recording_duration)
-                                logger.info(f"✅ WebSocket设备注册成功: {device_id}")
+                                logger.info(f"✅ WebSocket device registration successful: {device_id}")
                             except Exception as e:
-                                logger.error(f"❌ WebSocket发送录音配置失败: {e}")
+                                logger.error(f"❌ WebSocket failed to send recording configuration: {e}")
                         else:
-                            logger.warning(f"❌ 未知消息类型: {data.get('type')}")
+                            logger.warning(f"❌ Unknown message type: {data.get('type')}")
                     except json.JSONDecodeError as e:
-                        logger.error(f"❌ WebSocket收到无效JSON消息: {e}")
+                        logger.error(f"❌ WebSocket received invalid JSON message: {e}")
                         
                 elif "bytes" in message:
                     if not device_id:
-                        logger.warning("❌ 收到音频数据但设备未注册")
+                        logger.warning("❌ Received audio data but device not registered")
                         continue
                     raw_data = message["bytes"]
                     if raw_data:
                         try:
-                            # 使用asyncio.create_task让音频处理不阻塞WebSocket接收
+                            # Use asyncio.create_task to prevent audio processing from blocking WebSocket reception
                             asyncio.create_task(
                                 process_audio_async(device_id, raw_data)
                             )
                         except Exception as e:
-                            logger.error(f"❌ 处理WebSocket音频数据失败: {str(e)}")
+                            logger.error(f"❌ Failed to process WebSocket audio data: {str(e)}")
                             
             except asyncio.TimeoutError:
-                # 超时是正常的，继续循环
+                # Timeout is normal, continue loop
                 continue
             except WebSocketDisconnect:
-                logger.info(f"📱 WebSocket设备断开: {device_id}")
+                logger.info(f"📱 WebSocket device disconnected: {device_id}")
                 break
                 
     except Exception as e:
-        logger.error(f"❌ WebSocket连接异常: {str(e)}")
+        logger.error(f"❌ WebSocket connection error: {str(e)}")
     finally:
         if device_id:
             unregister_client(device_id)
 
 def process_audio(device_id: str, raw_data: bytes):
-    """统一的音频数据处理函数"""
+    """Unified audio data processing function"""
     try:
         session=device_sessions.get(device_id)
         if not session:
-            logger.warning(f"⚠️ 设备 {device_id} 会话不存在，跳过音频处理")
+            logger.warning(f"⚠️ Device {device_id} session does not exist, skipping audio processing")
             return None
         current_time = time.time()
         with sessions_lock:
             session.last_chunk_time = current_time
             session.raw_audio.extend(np.frombuffer(raw_data, dtype=np.int16))
             
-            # 检查是否需要保存（快速检查）
+            # Check if saving is needed (quick check)
             if current_time - session.start_time >= 180.0 and len(session.raw_audio) > 0:
                 audio_to_save = session.raw_audio.copy()
                 session.raw_audio.clear()
@@ -585,37 +592,37 @@ def process_audio(device_id: str, raw_data: bytes):
                 return audio_to_save
             
     except Exception as e:
-        logger.error(f"❌ 音频处理失败 {device_id}: {str(e)}")
+        logger.error(f"❌ Audio processing failed {device_id}: {str(e)}")
 
     return None
 
 async def process_audio_async(device_id: str, raw_data: bytes):
-    # 转发音频数据给实时监听者（在锁外进行）
+    # Forward audio data to real-time listeners (performed outside lock)
     await audio_to_listeners(device_id, raw_data)
-    """异步音频数据处理包装器"""
+    """Asynchronous audio data processing wrapper"""
     audio_to_save = process_audio(device_id, raw_data)
     if audio_to_save:
-        # logger.info(f"💾 设备 {device_id} 3分钟文件保存")
+        # logger.info(f"💾 Device {device_id} 3-minute file save")
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, save_device_audio, device_id, audio_to_save)
 
-# 转发音频数据给实时监听者
+# Forward audio data to real-time listeners
 async def audio_to_listeners(device_id: str, raw_data: bytes):
-    """将音频数据转发给实时监听的WebSocket连接（优化版本）"""
+    """Forward audio data to real-time listening WebSocket connections (optimized version)"""
     if device_id not in live_listeners:
         return
     
     try:
         int16_data = np.frombuffer(raw_data, dtype=np.int16)
     
-        # 优化：使用内存操作而非临时文件
+        # Optimization: use memory operations instead of temporary files
         import io
         audio_buffer = io.BytesIO()
         sf.write(audio_buffer, int16_data, 16000, format='WAV')
         audio_wav_data = audio_buffer.getvalue()
         audio_buffer.close()
         
-        # 转发给所有监听者
+        # Forward to all listeners
         disconnected_listeners = []
         with live_listeners_lock:
             listeners = live_listeners.get(device_id, []).copy()
@@ -624,10 +631,10 @@ async def audio_to_listeners(device_id: str, raw_data: bytes):
             try:
                 await listener_ws.send_bytes(audio_wav_data)
             except Exception as e:
-                logger.warning(f"转发音频数据失败: {e}")
+                logger.warning(f"Failed to forward audio data: {e}")
                 disconnected_listeners.append(listener_ws)
         
-        # 清理断开的连接
+        # Clean up disconnected connections
         if disconnected_listeners:
             with live_listeners_lock:
                 if device_id in live_listeners:
@@ -638,17 +645,17 @@ async def audio_to_listeners(device_id: str, raw_data: bytes):
                         del live_listeners[device_id]
                         
     except Exception as e:
-        logger.error(f"转发音频数据处理失败: {e}")
+        logger.error(f"Failed to process audio data forwarding: {e}")
 
 @app.get("/devices/{device_id}/daily_transcript/{date}")
 async def get_daily_transcript(device_id: str, date: str, auth: bool = Depends(require_auth)):
-    """获取指定设备指定日期的完整转录文本"""
+    """Get complete transcript text for specified device and date"""
     date_dir = os.path.join(RECORDINGS, device_id, date)
     
     if not os.path.exists(date_dir):
-        raise HTTPException(status_code=404, detail=f"设备 {device_id} 的日期 {date} 不存在")
+        raise HTTPException(status_code=404, detail=f"Date {date} for device {device_id} does not exist")
     
-    # 查找所有txt文件
+    # Find all txt files
     txt_files = []
     for file in os.listdir(date_dir):
         if file.endswith('.txt'):
@@ -661,13 +668,13 @@ async def get_daily_transcript(device_id: str, date: str, auth: bool = Depends(r
             "date": date,
             "transcript": "",
             "total_lines": 0,
-            "message": "当日无转录文本"
+            "message": "No transcript text for this date"
         }
     
-    # 按创建时间排序
+    # Sort by creation time
     txt_files.sort(key=lambda x: x[1])
     
-    # 拼接所有文本内容
+    # Concatenate all text content
     all_text = []
     total_lines = 0
     
@@ -678,9 +685,9 @@ async def get_daily_transcript(device_id: str, date: str, auth: bool = Depends(r
                 all_text.extend(lines)
                 total_lines += len(lines)
         except Exception as e:
-            logger.warning(f"⚠️ 读取文本文件失败: {filepath}, {e}")
+            logger.warning(f"⚠️ Failed to read text file: {filepath}, {e}")
     
-    # 拼接成完整文本
+    # Concatenate into complete text
     full_transcript = "".join(all_text).strip()
     
     return {
@@ -691,10 +698,10 @@ async def get_daily_transcript(device_id: str, date: str, auth: bool = Depends(r
         "files_count": len(txt_files)
     }
 
-# 简化的录音计划管理API
+# Simplified recording schedule management API
 @app.get("/schedules/{device_id}")
 async def get_device_schedules(device_id: str, auth: bool = Depends(require_auth)):
-    """获取指定设备的录音计划"""
+    """Get recording schedule for specified device"""
     with schedules_lock:
         device_schedules = recording_schedules.get(device_id, [])
         schedules_list = []
@@ -714,7 +721,7 @@ async def get_device_schedules(device_id: str, auth: bool = Depends(require_auth
 
 @app.post("/schedules/{device_id}")
 async def add_schedule(device_id: str, schedule_data: dict, auth: bool = Depends(require_auth)):
-    """添加录音计划"""
+    """Add recording schedule"""
     try:
         schedule = RecordingSchedule(
             start_at=schedule_data["start_at"],
@@ -730,37 +737,37 @@ async def add_schedule(device_id: str, schedule_data: dict, auth: bool = Depends
             save_schedules()
             load_schedules()
         logger.info(f"Add Schedular: {device_id}")
-        return {"success": True, "message": "录音计划添加成功"}
+        return {"success": True, "message": "Recording schedule added successfully"}
         
     except Exception as e:
-        logger.error(f"❌ 添加录音计划失败: {e}")
-        raise HTTPException(status_code=400, detail=f"添加录音计划失败: {str(e)}")
+        logger.error(f"❌ Failed to add recording schedule: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to add recording schedule: {str(e)}")
 
 def handle_tcp_client(client_socket, client_address):
-    """处理单个TCP客户端连接"""
+    """Handle single TCP client connection"""
     device_id = None
     buffer = b""
     
     try:
         while not stop_flag:
             try:
-                # 接收数据
+                # Receive data
                 data = client_socket.recv(4096)
                 if not data:
-                    # logger.info(f"📱 TCP客户端主动断开: {client_address}")
+                    # logger.info(f"📱 TCP client actively disconnected: {client_address}")
                     break
                 
                 buffer += data
-                # 如果还没有设备ID，先查找设备ID
+                # If device ID is not yet available, look for device ID first
                 if device_id is None:
-                    # 查找简化的设备ID消息格式：device_id:xxxxx
+                    # Look for simplified device ID message format: device_id:xxxxx
                     try:
                         buffer_str = buffer.decode('utf-8', errors='ignore')
                         if 'device_id:' in buffer_str:
-                            # 找到设备ID消息
+                            # Found device ID message
                             device_id_start = buffer_str.find('device_id:')
                             if device_id_start != -1:
-                                # 提取设备ID（到换行符或缓冲区结束）
+                                # Extract device ID (to newline or buffer end)
                                 id_start = device_id_start + len('device_id:')
                                 line_end = buffer_str.find('\n', id_start)
                                 if line_end == -1:
@@ -768,61 +775,61 @@ def handle_tcp_client(client_socket, client_address):
                                 
                                 device_id = buffer_str[id_start:line_end].strip()
                                 if device_id:                                    
-                                    # 注册TCP客户端并获取录制时长
+                                    # Register TCP client and get recording duration
                                     recording_duration = register_client(device_id, "tcp", client_socket)
-                                    # 发送录制时长响应给客户端（简单数字格式）
+                                    # Send recording duration response to client (simple numeric format)
                                     try:
                                         response = f"{recording_duration}\n"
                                         client_socket.send(response.encode('utf-8'))
                                         logger.info(f"IP：{client_address} ID: {device_id} Duration: {recording_duration} S")
                                     except socket.error as e:
                                         logger.error(f"Send error: {e}")
-                                        break  # Socket错误，跳出循环
+                                        break  # Socket error, exit loop
                                     except Exception as e:
                                         logger.error(f"Send error: {e}")
                                     
-                                    # 移除已处理的设备ID消息
+                                    # Remove processed device ID message
                                     processed_bytes = device_id_start + len(f'device_id:{device_id}')
                                     if line_end < len(buffer_str):
-                                        processed_bytes += 1  # 包含换行符
+                                        processed_bytes += 1  # Include newline character
                                     buffer = buffer[processed_bytes:]
                     except UnicodeDecodeError:
-                        # 如果不能解码为UTF-8，可能是音频数据
+                        # If cannot decode as UTF-8, might be audio data
                         pass
                     
-                    # 如果缓冲区过大但还没找到设备ID，清理一部分
+                    # If buffer is too large but device ID not found yet, clean up part of it
                     if len(buffer) > 2048:
                         buffer = buffer[-1024:]
                 
-                # 如果有设备ID，处理音频数据
+                # If device ID exists, process audio data
                 if device_id and len(buffer) >= 2048:
-                    # 提取1024字节的音频数据
+                    # Extract 2048 bytes of audio data
                     audio_data = buffer[:2048]
                     buffer = buffer[2048:]
                     
                     try:
-                        # 使用线程安全的方法转发音频数据
+                        # Use thread-safe method to forward audio data
                         threading.Thread(
                             target=lambda: asyncio.run(audio_to_listeners(device_id, audio_data)),
                             daemon=True
                         ).start()
-                        # 使用统一的音频处理函数
+                        # Use unified audio processing function
                         audio_to_save = process_audio(device_id, audio_data)
                         if audio_to_save:
-                            # logger.info(f"💾 TCP设备 {device_id} 3分钟文件保存")
+                            # logger.info(f"💾 TCP device {device_id} 3-minute file save")
                             threading.Thread(
                                 target=save_device_audio,
                                 args=(device_id, audio_to_save),
                                 daemon=True
                             ).start()
-                        # TCP音频数据也需要转发给实时监听者（在锁外异步执行）
+                        # TCP audio data also needs to be forwarded to real-time listeners (async execution outside lock)
                     except Exception as e:
                         logger.error(f"TCP Aduio: {str(e)}")
             except socket.timeout:
                 continue
             except socket.error as e:
                 logger.error(f"TCP Data: {str(e)}")
-                break  # Socket错误，断开连接
+                break  # Socket error, disconnect
             except Exception as e:
                 logger.error(f"TCP Data: {str(e)}")
                 break
@@ -830,16 +837,18 @@ def handle_tcp_client(client_socket, client_address):
     except Exception as e:
         logger.error(f"TCP Client: {str(e)}")
     finally:
-        # 清理连接
+        # Clean up connection and socket - avoid duplicate closure
         if device_id:
             unregister_client(device_id)
-        try:
-            client_socket.close()
-        except Exception as e:
-            logger.debug(f"关闭TCP连接异常 {client_address}: {e}")
+        else:
+            # If device ID not registered, manually close socket
+            try:
+                client_socket.close()
+            except Exception as e:
+                logger.debug(f"TCP connection closure error {client_address}: {e}")
 
 def start_tcp_server():
-    """启动TCP服务器"""
+    """Start TCP server"""
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_socket.bind(('0.0.0.0', 8883))
@@ -850,7 +859,7 @@ def start_tcp_server():
     while not stop_flag:
         try:
             client_socket, client_address = server_socket.accept()
-            client_socket.settimeout(3.0)  # 设置超时避免阻塞
+            client_socket.settimeout(3.0)  # Set timeout to avoid blocking
             client_thread = threading.Thread(
                 target=handle_tcp_client, 
                 args=(client_socket, client_address), 
@@ -860,66 +869,66 @@ def start_tcp_server():
             
         except Exception as e:
             if not stop_flag:
-                logger.error(f"❌ TCP服务器异常: {str(e)}")
+                logger.error(f"❌ TCP server error: {str(e)}")
             break
     server_socket.close()
-    logger.info("🔌 TCP服务器已停止")
+    logger.info("🔌 TCP server stopped")
 
-# 实时监听WebSocket端点
+# Real-time listening WebSocket endpoint
 @app.websocket("/ws/live_audio/{device_id}")
 async def websocket_live_audio_endpoint(websocket: WebSocket, device_id: str):
-    """实时音频监听WebSocket端点"""
+    """Real-time audio listening WebSocket endpoint"""
     await websocket.accept()
     
     try:
-        # 注册监听者
+        # Register listener
         with live_listeners_lock:
             if device_id not in live_listeners:
                 live_listeners[device_id] = []
             live_listeners[device_id].append(websocket)
         
-        # logger.info(f"🎧 开始实时监听设备: {device_id}")
+        # logger.info(f"🎧 Started real-time listening for device: {device_id}")
         
-        # 发送连接确认消息
+        # Send connection confirmation message
         await websocket.send_text(json.dumps({
             "type": "connected",
             "device_id": device_id,
-            "message": f"已连接到设备 {device_id} 的音频流"
+            "message": f"Connected to audio stream of device {device_id}"
         }))
         
-        # 保持连接并处理客户端消息
+        # Keep connection and handle client messages
         while True:
             try:
                 message = await asyncio.wait_for(websocket.receive(), timeout=30.0)
                 
                 if message.get("type") == "websocket.receive":
                     if "text" in message:
-                        # 处理客户端文本消息（如心跳）
+                        # Handle client text messages (like heartbeat)
                         try:
                             client_msg = json.loads(message["text"])
                             if client_msg.get("type") == "ping":
                                 await websocket.send_text(json.dumps({"type": "pong"}))
                         except json.JSONDecodeError:
-                            logger.warning("收到无效的JSON消息")
+                            logger.warning("Received invalid JSON message")
                 elif message.get("type") == "websocket.disconnect":
-                    # logger.info(f"🎧 实时监听断开: {device_id}")
+                    # logger.info(f"🎧 Real-time listening disconnected: {device_id}")
                     break
                     
             except asyncio.TimeoutError:
-                # 30秒超时，发送心跳检查连接
+                # 30-second timeout, send heartbeat to check connection
                 try:
                     await websocket.send_text(json.dumps({"type": "ping"}))
                 except:
                     logger.info(f"Live discount: {device_id}")
                     break
             except Exception as e:
-                logger.warning(f"🎧 实时监听消息处理错误: {e}")
+                logger.warning(f"🎧 Real-time listening message processing error: {e}")
                 break
                 
     except Exception as e:
-        logger.error(f"❌ 实时监听WebSocket错误: {e}")
+        logger.error(f"❌ Real-time listening WebSocket error: {e}")
     finally:
-        # 清理监听者
+        # Clean up listeners
         with live_listeners_lock:
             if device_id in live_listeners and websocket in live_listeners[device_id]:
                 live_listeners[device_id].remove(websocket)
