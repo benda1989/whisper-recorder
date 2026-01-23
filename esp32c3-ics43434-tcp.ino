@@ -138,6 +138,7 @@ void setup() {
     if (recordingDuration <= 0) {
         Serial.println("No recording schedule, sleeping for 60 seconds");
         client.stop();
+        WiFi.disconnect(true);
         esp_sleep_enable_timer_wakeup(60 * 1000000);
         esp_deep_sleep_start();
     }

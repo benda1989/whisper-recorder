@@ -17,5 +17,8 @@ pip install faster-whisper fastapi uvicorn[standard] soundfile python-multipart
 ## Transcribe   
 ![transcribe.png](transcribe.png)
 
+# Test Device ESP32-ICS43434
+![esp32.jpg](esp32.jpg)
+
 # Thanks
 If you find this project helpful, please give it a star!
