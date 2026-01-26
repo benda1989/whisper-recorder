@@ -37,6 +37,9 @@ async def lifespan(app: FastAPI):
     # Start device timeout cleanup task
     threading.Thread(target=clean_devices, daemon=True) .start()
     
+    # Start daily restart scheduler
+    threading.Thread(target=daily_restart_scheduler, daemon=True).start()
+    
     yield
     
     # Execute on shutdown
@@ -300,6 +303,25 @@ def clean_devices():
             logger.error(f"❌ Device cleanup task error: {str(e)}")
         finally:
             time.sleep(DEVICE_TIMEOUT)
+
+def daily_restart_scheduler():
+    """Daily restart scheduler - restart at 3 AM"""
+    import os
+    import sys
+    
+    while not stop_flag:
+        try:
+            now = datetime.datetime.now()
+            # Check if it's 3 AM
+            if now.hour == 3 and now.minute == 0:
+                logger.info("🔄 Daily restart initiated at 3:00 AM")
+                save_schedules()
+                time.sleep(2)
+                os.execv(sys.executable, ['python'] + sys.argv)
+            time.sleep(60)  # Check every minute
+        except Exception as e:
+            logger.error(f"❌ Daily restart scheduler error: {e}")
+            time.sleep(60)
 
 def check_device_status(session: str,device_id: str) -> dict:
     """Unified device status check function"""
@@ -851,15 +873,16 @@ def start_tcp_server():
     """Start TCP server"""
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_socket.settimeout(5.0)  # Add server socket timeout
     server_socket.bind(('0.0.0.0', 8883))
-    server_socket.listen(5)
+    server_socket.listen(10)  # Increase backlog
     
     logger.info("TCP Server : 8883")
     
     while not stop_flag:
         try:
             client_socket, client_address = server_socket.accept()
-            client_socket.settimeout(3.0)  # Set timeout to avoid blocking
+            client_socket.settimeout(10.0)  # Increase client timeout
             client_thread = threading.Thread(
                 target=handle_tcp_client, 
                 args=(client_socket, client_address), 
@@ -867,10 +890,14 @@ def start_tcp_server():
             )
             client_thread.start()
             
+        except socket.timeout:
+            # Server accept timeout is normal, continue
+            continue
         except Exception as e:
             if not stop_flag:
                 logger.error(f"❌ TCP server error: {str(e)}")
-            break
+            time.sleep(1)  # Brief pause before retry
+            continue
     server_socket.close()
     logger.info("🔌 TCP server stopped")
 
