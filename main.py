@@ -89,13 +89,16 @@ class DeviceSession:
     
     # Audio session data
     raw_audio: List[int] = field(default_factory=list)
-    last_chunk_time: float = field(default_factory=time.time)
-    start_time: float = field(default_factory=time.time)
+    last_chunk_time: float = field(default_factory=lambda: time.time())
+    start_time: float = field(default_factory=lambda: time.time())
     lock: threading.Lock = field(default_factory=threading.Lock)
     
 # Global variables - unified device session management
 device_sessions: Dict[str, DeviceSession] = {}
 sessions_lock = threading.Lock()
+
+# Reset device durations dictionary
+reset_device_durations: Dict[str, int] = {}
 
 
 def save_device_audio(device_id: str, raw_audio: List[int]):
@@ -213,50 +216,42 @@ def save_schedules():
         logger.error(f"❌ Failed to save recording schedules: {e}")
 
 
-def clean_connection(old: DeviceSession, new_obj: object):
-    """Safely clean up old connections"""
-    if old.connection_type == "tcp" and old.connection_obj != new_obj:
-        try:
-            if hasattr(old.connection_obj, 'fileno') and old.connection_obj.fileno() != -1:
-                old.connection_obj.close()
-            logger.info(f"Cleaned old TCP connection for device {old.device_id}")
-        except (OSError, AttributeError):
-            pass
-        except Exception as e:
-            logger.warning(f"Failed to clean connection for device {old.device_id}: {e}")
-    elif old.connection_type == "websocket" and old.connection_obj != new_obj:
-        try:
-            logger.info(f"WebSocket connection {old.device_id} will auto cleanup")
-        except Exception as e:
-            logger.warning(f"WebSocket {old.device_id} cleanup warning: {e}")
-
-def register_client(device_id: str, connection_type: str, connection_obj: object ) -> Dict:
-    ""
+def register_client(device_id: str, connection_type: str, connection_obj: object) -> int:
+    """Simplified client registration - return recording duration"""
     current_time = time.time()
+    
+    # Check for device reset flag
+    if device_id in reset_device_durations:
+        return reset_device_durations.pop(device_id)
+    
+    # Calculate recording duration
     duration = 0
-    device_schedules = recording_schedules.get(device_id, []) 
+    device_schedules = recording_schedules.get(device_id, [])
     if not device_schedules:
         os.makedirs(os.path.join(RECORDINGS, device_id), exist_ok=True)
         return 0
+        
     for schedule in device_schedules:
         if schedule.is_active():
-            duration= int(schedule.stop_at - current_time)
+            duration = int(schedule.stop_at - current_time)
             break
+    
     if duration <= 0:
         return 0
+    
+    # Only register if recording is needed
     with sessions_lock:
-            # Check if device exists and handle connection type
+        # Clean up old connection if exists
         if device_id in device_sessions:
-            existing_session = device_sessions[device_id]
-            if existing_session.connection_type == connection_type:
-                # Same connection type, clean old connection
-                clean_connection(existing_session, connection_obj)
-                logger.warning(f"Device {device_id} duplicate {connection_type} connection, cleaned old connection")
-            else:
-                # Different connection type, log warning but allow coexistence
-                logger.warning(f"Device {device_id} multiple connection types: existing {existing_session.connection_type}, new {connection_type}")
+            old_session = device_sessions[device_id]
+            if old_session.connection_type == "tcp":
+                try:
+                    old_session.connection_obj.close()
+                except:
+                    pass
+            logger.info(f"Device reconnect: {device_id}")
         
-        # Create or update device session
+        # Register new session
         device_sessions[device_id] = DeviceSession(
             device_id=device_id,
             connection_type=connection_type,
@@ -264,27 +259,33 @@ def register_client(device_id: str, connection_type: str, connection_obj: object
             start_time=current_time,
         )
         logger.info(f"Device Connect: {device_id} via {connection_type}")
+    
     return duration
 
 def unregister_client(device_id: str) -> bool:
-    """Unregister client connection"""
+    """Simplified unregister with safe socket cleanup"""
     with sessions_lock:
-        if device_id in device_sessions:
-            try:
-                session = device_sessions[device_id]
-                if session.connection_type == "tcp" and hasattr(session.connection_obj, 'fileno'):
-                    try:
+        if device_id not in device_sessions:
+            return False
+            
+        try:
+            session = device_sessions[device_id]
+            # Safe TCP socket cleanup
+            if session.connection_type == "tcp":
+                try:
+                    # Try to close socket if it's still valid
+                    if hasattr(session.connection_obj, 'fileno'):
                         if session.connection_obj.fileno() != -1:
                             session.connection_obj.close()
-                    except (OSError, AttributeError):
-                        pass
-                del device_sessions[device_id]
-                logger.info(f"Device discount: {device_id}")
-                return True
-            except Exception as e:
-                logger.error(f"Failed to unregister device {device_id}: {e}")
-                return False
-        return False
+                except:
+                    pass  # Ignore all close errors
+            
+            del device_sessions[device_id]
+            logger.info(f"Device disconnect: {device_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Unregister {device_id} failed: {e}")
+            return False
 
 def clean_devices():
     """Background task to periodically clean inactive devices"""
@@ -765,6 +766,17 @@ async def add_schedule(device_id: str, schedule_data: dict, auth: bool = Depends
         logger.error(f"❌ Failed to add recording schedule: {e}")
         raise HTTPException(status_code=400, detail=f"Failed to add recording schedule: {str(e)}")
 
+@app.post("/reset/{device_id}")
+async def reset_device(device_id: str, auth: bool = Depends(require_auth)):
+    """Reset device to return -1 duration on next request"""
+    reset_device_durations[device_id] = -1
+    logger.info(f"Reset device {device_id}: will return -1 on next connection")
+    return {
+        "success": True, 
+        "device_id": device_id,
+        "message": f"Device {device_id} will return duration -1 on next request"
+    }
+
 def handle_tcp_client(client_socket, client_address):
     """Handle single TCP client connection"""
     device_id = None
@@ -793,9 +805,16 @@ def handle_tcp_client(client_socket, client_address):
                                 id_start = device_id_start + len('device_id:')
                                 line_end = buffer_str.find('\n', id_start)
                                 if line_end == -1:
-                                    line_end = len(buffer_str)
-                                
-                                device_id = buffer_str[id_start:line_end].strip()
+                                    # ESP32 doesn't send newline, extract alphanumeric characters
+                                    remaining = buffer_str[id_start:]
+                                    device_id = ''
+                                    for char in remaining:
+                                        if char.isalnum():
+                                            device_id += char
+                                        else:
+                                            break
+                                else:
+                                    device_id = buffer_str[id_start:line_end].strip()
                                 if device_id:                                    
                                     # Register TCP client and get recording duration
                                     recording_duration = register_client(device_id, "tcp", client_socket)
@@ -828,29 +847,22 @@ def handle_tcp_client(client_socket, client_address):
                     # Extract 2048 bytes of audio data
                     audio_data = buffer[:2048]
                     buffer = buffer[2048:]
-                    
                     try:
-                        # Use thread-safe method to forward audio data
-                        threading.Thread(
-                            target=lambda: asyncio.run(audio_to_listeners(device_id, audio_data)),
-                            daemon=True
-                        ).start()
-                        # Use unified audio processing function
-                        audio_to_save = process_audio(device_id, audio_data)
-                        if audio_to_save:
-                            # logger.info(f"💾 TCP device {device_id} 3-minute file save")
-                            threading.Thread(
-                                target=save_device_audio,
-                                args=(device_id, audio_to_save),
-                                daemon=True
-                            ).start()
-                        # TCP audio data also needs to be forwarded to real-time listeners (async execution outside lock)
+                        # Use asyncio.create_task to prevent audio processing from blocking WebSocket reception
+                        asyncio.create_task(
+                            process_audio_async(device_id, audio_data)
+                        )
                     except Exception as e:
                         logger.error(f"TCP Aduio: {str(e)}")
             except socket.timeout:
                 continue
             except socket.error as e:
-                logger.error(f"TCP Data: {str(e)}")
+                if e.errno == 9:  # Bad file descriptor
+                    logger.debug(f"TCP Socket already closed: {device_id}")
+                elif e.errno == 104:  # Connection reset by peer - normal client disconnect
+                    logger.info(f"TCP client {device_id} disconnected (recording completed)")
+                else:
+                    logger.error(f"TCP Socket: {str(e)}")
                 break  # Socket error, disconnect
             except Exception as e:
                 logger.error(f"TCP Data: {str(e)}")
@@ -859,15 +871,15 @@ def handle_tcp_client(client_socket, client_address):
     except Exception as e:
         logger.error(f"TCP Client: {str(e)}")
     finally:
-        # Clean up connection and socket - avoid duplicate closure
+        # Clean up resources
         if device_id:
             unregister_client(device_id)
-        else:
-            # If device ID not registered, manually close socket
-            try:
+        # Always try to close socket (unregister_client may have already closed it)
+        try:
+            if hasattr(client_socket, 'fileno') and client_socket.fileno() != -1:
                 client_socket.close()
-            except Exception as e:
-                logger.debug(f"TCP connection closure error {client_address}: {e}")
+        except:
+            pass  # Socket already closed, ignore
 
 def start_tcp_server():
     """Start TCP server"""
